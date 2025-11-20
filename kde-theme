@@ -8,7 +8,23 @@
 # - Apply saved global theme
 # - Cross-user / cross-machine restore: rewrites old $HOME paths to current $HOME
 
-BASE_DIR="$HOME/kde-theme-backups"
+# Allow overriding backup location so multiple users can share the same stash
+BASE_DIR="${KDE_THEME_BASE_DIR:-$HOME/kde-theme-backups}"
+
+# Copy directory contents, wiping stale files to keep snapshot exact.
+sync_dir() {
+    local src="$1"
+    local dest="$2"
+
+    mkdir -p "$dest"
+
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a --delete "$src/" "$dest/"
+    else
+        rm -rf "$dest"
+        cp -r "$src" "$dest"
+    fi
+}
 
 ensure_base_dir() {
     mkdir -p "$BASE_DIR"
@@ -150,7 +166,7 @@ ensure_backup_ready() {
 
     if [ -f "$BASE_DIR/$NAME.tar.gz" ]; then
         echo "📦 Extracting archive $BASE_DIR/$NAME.tar.gz…"
-        tar -xzf "$BASE_DIR/$NAME.tar.gz" -C "$BASE_DIR"
+        tar --no-same-owner -xzf "$BASE_DIR/$NAME.tar.gz" -C "$BASE_DIR"
     fi
 
     if [ ! -d "$BACKUP_DIR" ]; then
@@ -334,42 +350,37 @@ restore_theme() {
 
     for d in "${theme_dirs[@]}"; do
         if [ -d "$BACKUP_DIR/$d" ]; then
-            cp -r "$BACKUP_DIR/$d" "$HOME/.local/share/"
+            sync_dir "$BACKUP_DIR/$d" "$HOME/.local/share/$d"
         fi
     done
 
-    # Any plasma* directories
+    # Any plasma* directories (plasmoids, shells, etc.)
     for d in "$BACKUP_DIR"/plasma*; do
         [ -d "$d" ] || continue
-        cp -r "$d" "$HOME/.local/share/"
+        local base
+        base="$(basename "$d")"
+        sync_dir "$d" "$HOME/.local/share/$base"
     done
 
     # 2b) User icon themes ~/.icons
     if [ -d "$BACKUP_DIR/user-icons" ]; then
-        mkdir -p "$HOME/.icons"
-        cp -r "$BACKUP_DIR/user-icons/"* "$HOME/.icons/" 2>/dev/null || true
+        sync_dir "$BACKUP_DIR/user-icons" "$HOME/.icons"
     fi
 
     # 3) Kvantum
     if [ -d "$BACKUP_DIR/Kvantum-config" ]; then
-        mkdir -p "$HOME/.config"
-        rm -rf "$HOME/.config/Kvantum"
-        cp -r "$BACKUP_DIR/Kvantum-config" "$HOME/.config/Kvantum"
+        sync_dir "$BACKUP_DIR/Kvantum-config" "$HOME/.config/Kvantum"
     fi
     if [ -d "$BACKUP_DIR/Kvantum-themes" ]; then
-        mkdir -p "$HOME/.local/share"
-        rm -rf "$HOME/.local/share/Kvantum"
-        cp -r "$BACKUP_DIR/Kvantum-themes" "$HOME/.local/share/Kvantum"
+        sync_dir "$BACKUP_DIR/Kvantum-themes" "$HOME/.local/share/Kvantum"
     fi
 
     # 4) Latte config/share
     if [ -d "$BACKUP_DIR/latte-config" ]; then
-        mkdir -p "$HOME/.config"
-        cp -r "$BACKUP_DIR/latte-config/"* "$HOME/.config/" 2>/dev/null || true
+        sync_dir "$BACKUP_DIR/latte-config" "$HOME/.config"
     fi
     if [ -d "$BACKUP_DIR/latte-share" ]; then
-        mkdir -p "$HOME/.local/share"
-        cp -r "$BACKUP_DIR/latte-share/"* "$HOME/.local/share/" 2>/dev/null || true
+        sync_dir "$BACKUP_DIR/latte-share" "$HOME/.local/share"
     fi
 
     # Apply global theme if saved
@@ -409,12 +420,10 @@ restore_layout() {
 
     # Latte configs/layouts
     if [ -d "$BACKUP_DIR/latte-config" ]; then
-        mkdir -p "$HOME/.config"
-        cp -r "$BACKUP_DIR/latte-config/"* "$HOME/.config/" 2>/dev/null || true
+        sync_dir "$BACKUP_DIR/latte-config" "$HOME/.config"
     fi
     if [ -d "$BACKUP_DIR/latte-share" ]; then
-        mkdir -p "$HOME/.local/share"
-        cp -r "$BACKUP_DIR/latte-share/"* "$HOME/.local/share/" 2>/dev/null || true
+        sync_dir "$BACKUP_DIR/latte-share" "$HOME/.local/share"
     fi
 
     echo "🔄 Restarting Plasma shell for layout restore…"
@@ -475,5 +484,6 @@ case "$1" in
         echo "Backups are stored in: $BASE_DIR"
         echo "Each backup is also archived as: $BASE_DIR/<name>.tar.gz"
         echo "You can copy the .tar.gz to another KDE user/machine and restore there."
+        echo "To restore from a shared location, set KDE_THEME_BASE_DIR to that path."
         ;;
 esac
