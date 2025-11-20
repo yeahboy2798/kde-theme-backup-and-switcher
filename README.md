@@ -89,7 +89,7 @@ You can install the full application â€” **CLI + GUI + menu launcher + icon** â€
 ### Install:
 
 ```bash
-sudo dpkg -i kde-theme-backup_1.0_all.deb
+sudo dpkg -i installer.deb
 ```
 
 This installs:
