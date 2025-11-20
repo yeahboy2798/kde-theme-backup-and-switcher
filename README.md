@@ -42,8 +42,8 @@ Perfect for distro hopping or messing with themes without fear 😄
 ## Install
 
 ```bash
-git clone https://github.com/yeahboy2798/kde-theme-backup.git
-cd kde-theme-backup
+git clone git@github.com:yeahboy2798/kde-theme-backup-and-switcher.git
+cd kde-theme-backup-and-switcher
 chmod +x kde-theme install-kde-theme.sh
 sudo ./install-kde-theme.sh
 # kde-theme-backup-and-switcher
