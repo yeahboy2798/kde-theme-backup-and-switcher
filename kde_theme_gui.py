@@ -1,24 +1,9 @@
 #!/usr/bin/env python3
-import subprocess, sys
-def ensure_pyqt():
-    try:
-        import PyQt6
-        return
-    except ImportError:
-        print("PyQt6 not found. Installing...")
-        subprocess.run([sys.executable, "-m", "pip", "install", "PyQt6"], check=True)
-        print("PyQt6 installed. Please re-run the app.")
-        sys.exit()
-
-ensure_pyqt()
-
-
 import os
 import sys
 import shutil
-import subprocess
-from pathlib import Path
 
+from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -32,7 +17,7 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QMessageBox,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QProcess
 
 BACKUP_DIR = Path.home() / "kde-theme-backups"
 KDE_THEME_CMD = "kde-theme"
@@ -43,6 +28,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("KDE Theme Backup & Switcher")
         self.resize(800, 500)
+
+        self.process: QProcess | None = None
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -70,19 +57,25 @@ class MainWindow(QMainWindow):
         self.backup_list.setSelectionMode(self.backup_list.SelectionMode.SingleSelection)
 
         buttons_layout = QVBoxLayout()
-        restore_theme_btn = QPushButton("Restore Theme Only")
-        restore_layout_btn = QPushButton("Restore Layout Only")
-        restore_all_btn = QPushButton("Restore Theme + Layout")
-        delete_btn = QPushButton("Delete Backup")
-        refresh_btn = QPushButton("Refresh List")
+        self.btn_restore_theme = QPushButton("Restore Theme Only")
+        self.btn_restore_layout = QPushButton("Restore Layout Only")
+        self.btn_restore_all = QPushButton("Restore Theme + Layout")
+        self.btn_delete = QPushButton("Delete Backup")
+        self.btn_refresh = QPushButton("Refresh List")
 
-        restore_theme_btn.clicked.connect(self.restore_theme)
-        restore_layout_btn.clicked.connect(self.restore_layout)
-        restore_all_btn.clicked.connect(self.restore_all)
-        delete_btn.clicked.connect(self.delete_backup)
-        refresh_btn.clicked.connect(self.load_backups)
+        self.btn_restore_theme.clicked.connect(self.restore_theme)
+        self.btn_restore_layout.clicked.connect(self.restore_layout)
+        self.btn_restore_all.clicked.connect(self.restore_all)
+        self.btn_delete.clicked.connect(self.delete_backup)
+        self.btn_refresh.clicked.connect(self.load_backups)
 
-        for b in [restore_theme_btn, restore_layout_btn, restore_all_btn, delete_btn, refresh_btn]:
+        for b in [
+            self.btn_restore_theme,
+            self.btn_restore_layout,
+            self.btn_restore_all,
+            self.btn_delete,
+            self.btn_refresh,
+        ]:
             buttons_layout.addWidget(b)
         buttons_layout.addStretch()
 
@@ -101,7 +94,21 @@ class MainWindow(QMainWindow):
 
     # --------- helpers ---------
 
+    def set_buttons_enabled(self, enabled: bool):
+        self.name_edit.setEnabled(enabled)
+        self.backup_list.setEnabled(enabled)
+        for btn in [
+            self.btn_restore_theme,
+            self.btn_restore_layout,
+            self.btn_restore_all,
+            self.btn_delete,
+            self.btn_refresh,
+        ]:
+            btn.setEnabled(enabled)
+
     def append_log(self, text: str):
+        if not text:
+            return
         self.log.append(text)
         self.log.moveCursor(self.log.textCursor().MoveOperation.End)
 
@@ -111,8 +118,8 @@ class MainWindow(QMainWindow):
                 self,
                 "kde-theme not found",
                 f"Could not find '{KDE_THEME_CMD}' in PATH.\n\n"
-                "Make sure you installed it with your install script "
-                "and that /usr/local/bin is in your PATH.",
+                "Make sure you installed it (kde-theme CLI) "
+                "and that /usr/bin or /usr/local/bin is in your PATH.",
             )
             return False
         return True
@@ -124,56 +131,74 @@ class MainWindow(QMainWindow):
             return None
         return item.text()
 
+    # --------- QProcess-based command runner ---------
+
     def run_cmd(self, args: list[str]):
-        """Run kde-theme command and show output in log.
-        We send a newline on stdin to satisfy any prompt (e.g. missing global theme),
-        effectively choosing the default / 'skip' behaviour."""
         if not self.ensure_cmd_available():
             return
 
-        self.append_log(f"$ {' '.join(args)}")
-        try:
-            # send a newline so interactive prompts don't hang the GUI
-            result = subprocess.run(
-                args,
-                input="\n",
-                capture_output=True,
-                text=True,
+        if self.process is not None and self.process.state() != QProcess.ProcessState.NotRunning:
+            QMessageBox.warning(
+                self,
+                "Command running",
+                "Another operation is still running. Please wait for it to finish.",
             )
-        except Exception as e:
-            self.append_log(f"❌ Error running command: {e}")
-            QMessageBox.critical(self, "Error", str(e))
             return
 
-        if result.stdout:
-            self.append_log(result.stdout.strip())
-        if result.stderr:
-            self.append_log(result.stderr.strip())
+        self.append_log(f"$ {' '.join(args)}")
 
-        if result.returncode != 0:
-            self.append_log(f"❌ Command exited with status {result.returncode}")
+        self.process = QProcess(self)
+        self.process.setProgram(args[0])
+        self.process.setArguments(args[1:])
+        # Merge stdout and stderr
+        self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+
+        self.process.readyReadStandardOutput.connect(self.on_ready_read)
+        self.process.finished.connect(self.on_process_finished)
+
+        self.set_buttons_enabled(False)
+        self.process.start()
+
+        # Send a newline so any interactive prompts (e.g. theme missing) don't block forever
+        self.process.write(b"\n")
+        self.process.closeWriteChannel()
+
+    def on_ready_read(self):
+        if self.process is None:
+            return
+        try:
+            data = bytes(self.process.readAllStandardOutput()).decode("utf-8", errors="ignore")
+        except Exception:
+            data = ""
+        if data:
+            for line in data.rstrip().splitlines():
+                self.append_log(line)
+
+    def on_process_finished(self, exit_code: int, _status):
+        self.set_buttons_enabled(True)
+        if exit_code == 0:
+            self.append_log("✅ Done.")
+        else:
+            self.append_log(f"❌ Command exited with status {exit_code}")
             QMessageBox.warning(
                 self,
                 "Command failed",
-                f"Command exited with status {result.returncode}.\nSee log for details.",
+                f"Command exited with status {exit_code}.\nSee log for details.",
             )
-        else:
-            self.append_log("✅ Done.")
+        self.process = None
+        # refresh list in case backups changed
+        self.load_backups()
 
     # --------- actions ---------
 
     def load_backups(self):
         self.backup_list.clear()
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-        if not BACKUP_DIR.exists():
-            return
-
         backups = sorted(
             [p.name for p in BACKUP_DIR.iterdir() if p.is_dir()],
             key=str.lower,
         )
         self.backup_list.addItems(backups)
-        self.append_log("🔄 Backup list updated.")
 
     def create_backup(self):
         name = self.name_edit.text().strip()
@@ -181,7 +206,6 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No name", "Please enter a backup name.")
             return
 
-        # Basic name validation
         if any(c in name for c in " /\\:"):
             QMessageBox.warning(self, "Invalid name", "Backup name cannot contain spaces or / \\ :")
             return
@@ -199,7 +223,6 @@ class MainWindow(QMainWindow):
                 return
 
         self.run_cmd([KDE_THEME_CMD, "backup", name])
-        self.load_backups()
 
     def restore_theme(self):
         name = self.selected_backup_name()
@@ -256,7 +279,8 @@ class MainWindow(QMainWindow):
 
         try:
             if dir_path.exists():
-                shutil.rmtree(dir_path)
+                import shutil as _shutil
+                _shutil.rmtree(dir_path)
             if tar_path.exists():
                 tar_path.unlink()
             self.append_log(f"🗑 Deleted backup '{name}'.")
