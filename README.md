@@ -9,7 +9,9 @@ A tiny CLI & GUI tool to **snapshot, restore, and switch KDE Plasma setups**:
 - Latte Dock config & layouts
 - Panel & widget layout (optional)
 
-Perfect for **distro hopping**, **theme experimentation**, or **resetting your KDE desktop** without fear 😄.
+Perfect for people who constantly explore new looks but want to snap back to their own theme without re-customizing everything.
+
+> 📌 Backups and restores are **per-user**. Copies you create only apply to the current account; restoring them on another user account is not supported yet.
 
 ---
 
@@ -89,7 +91,7 @@ You can install the full application — **CLI + GUI + menu launcher + icon** �
 ### Install:
 
 ```bash
-sudo dpkg -i kde-theme-backup_1.0_all.deb
+sudo dpkg -i installer.deb
 ```
 
 This installs:
