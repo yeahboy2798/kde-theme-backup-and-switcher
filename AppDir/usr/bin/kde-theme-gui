@@ -1,0 +1,3 @@
+#!/bin/bash
+HERE="$(dirname "$(readlink -f "$0")")"
+python3 "$HERE/../lib/python/kde_theme_gui.py"

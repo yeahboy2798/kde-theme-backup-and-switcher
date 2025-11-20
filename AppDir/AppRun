@@ -1,0 +1,8 @@
+#!/bin/bash
+# AppImage launcher
+HERE="$(dirname "$(readlink -f "$0")")"
+
+export PYTHONPATH="$HERE/usr/lib/python:$PYTHONPATH"
+export PATH="$HERE/usr/bin:$PATH"
+
+exec "$HERE/usr/bin/kde-theme-gui" "$@"
