@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=KDE Theme Backup & Switcher
+Comment=Backup and restore KDE Plasma themes and layouts
+Exec=kde-theme-gui
+Icon=preferences-desktop-theme-global
+Terminal=false
+Categories=Utility;Settings;Qt;KDE;
+Keywords=kde;theme;layout;backup;switcher;

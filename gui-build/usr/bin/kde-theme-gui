@@ -1,0 +1,6 @@
+cat > gui-build/usr/bin/kde-theme-gui << 'EOF'
+#!/bin/bash
+python3 /usr/lib/kde-theme-backup/kde_theme_gui.py "$@"
+EOF
+
+chmod 755 gui-build/usr/bin/kde-theme-gui
