@@ -34,7 +34,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("KDE Theme Backup & Switcher")
-        self.resize(900, 520)
+        self.resize(900, 540)
 
         self.process: QProcess | None = None
         self._after_process = None  # optional callback(exit_code: int)
@@ -109,23 +109,23 @@ class MainWindow(QMainWindow):
 
         main_layout.addLayout(mid_layout)
 
-        # Bottom: status bar + log output
-        status_layout = QHBoxLayout()
-        self.status_label = QLabel("Idle.")
+        # Log label + log area
+        main_layout.addWidget(QLabel("Output / Log:"))
+        self.log = QTextEdit()
+        self.log.setReadOnly(True)
+        main_layout.addWidget(self.log, 1)
+
+        # Bottom: full-width progress bar + status label
         self.progress = QProgressBar()
         self.progress.setMinimum(0)
         self.progress.setMaximum(0)  # indeterminate while visible
         self.progress.setVisible(False)
 
-        status_layout.addWidget(self.status_label, stretch=1)
-        status_layout.addWidget(self.progress, stretch=0)
+        self.status_label = QLabel("Idle.")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        main_layout.addLayout(status_layout)
-
-        main_layout.addWidget(QLabel("Output / Log:"))
-        self.log = QTextEdit()
-        self.log.setReadOnly(True)
-        main_layout.addWidget(self.log, 1)
+        main_layout.addWidget(self.progress)
+        main_layout.addWidget(self.status_label)
 
         self.load_backups()
 
@@ -190,13 +190,11 @@ class MainWindow(QMainWindow):
         self.process = QProcess(self)
         self._after_process = on_finished
 
-        # capture stdout and stderr separately
         self.process.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
         self.process.readyReadStandardOutput.connect(self._read_stdout)
         self.process.readyReadStandardError.connect(self._read_stderr)
         self.process.finished.connect(self._process_finished)
 
-        # Start the process
         program = args[0]
         arguments = args[1:]
         self.process.start(program, arguments)
@@ -237,7 +235,6 @@ class MainWindow(QMainWindow):
         self.set_busy(False, "Idle.")
 
         cb = self._after_process
-        # clear process before calling callback to allow next commands
         self.process = None
         self._after_process = None
 
@@ -245,10 +242,8 @@ class MainWindow(QMainWindow):
             try:
                 cb(exit_code)
             except Exception as e:
-                # don't crash GUI on callback errors
                 self.append_log(f"❌ Error in callback: {e}")
 
-    # KDE CLI wrapper
     def run_cmd(self, args: list[str], status_message: str | None = None, on_finished=None):
         if not self.ensure_cmd_available():
             return
@@ -275,7 +270,6 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No name", "Please enter a backup name.")
             return
 
-        # Basic name validation
         if any(c in name for c in " /\\:"):
             QMessageBox.warning(self, "Invalid name", "Backup name cannot contain spaces or / \\ :")
             return
@@ -378,12 +372,6 @@ class MainWindow(QMainWindow):
         self.load_backups()
 
     def import_backup(self):
-        """Let user browse and import an existing .tar.gz backup archive.
-
-        This is mainly for backups created on another machine/user. We expect the
-        archive to have been created by the 'kde-theme backup <name>' CLI, so
-        it contains a top-level directory matching the backup name.
-        """
         start_dir = str(Path.home())
         file_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -397,7 +385,6 @@ class MainWindow(QMainWindow):
         file_path = Path(file_path)
         name = file_path.stem
 
-        # Confirm import
         ret = QMessageBox.question(
             self,
             "Import backup?",
@@ -410,7 +397,6 @@ class MainWindow(QMainWindow):
 
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
-        # If a directory with same name exists, ask about overwrite
         target_dir = BACKUP_DIR / name
         if target_dir.exists():
             ret2 = QMessageBox.question(
@@ -422,23 +408,19 @@ class MainWindow(QMainWindow):
             )
             if ret2 != QMessageBox.StandardButton.Yes:
                 return
-            # Clean target dir to avoid stale files
             try:
                 shutil.rmtree(target_dir)
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to clear existing backup: {e}")
                 return
 
-        # Use QProcess to run tar asynchronously
         def after_import(exit_code: int):
             if exit_code == 0:
-                # Optionally keep a copy of the archive alongside backups for convenience
                 try:
                     dest_tar = BACKUP_DIR / file_path.name
                     if file_path.resolve() != dest_tar.resolve():
                         shutil.copy2(file_path, dest_tar)
                 except Exception as e:
-                    # Not fatal
                     self.append_log(f"⚠️ Could not copy archive into backup dir: {e}")
                 self.append_log(f"📥 Imported backup archive '{file_path.name}' as '{name}'.")
                 self.load_backups()
@@ -450,11 +432,6 @@ class MainWindow(QMainWindow):
         )
 
     def uninstall_app(self):
-        """Run the uninstaller script (if installed) using pkexec.
-
-        This is a convenience wrapper so users don't have to remember
-        uninstall commands. After successful uninstall, the GUI will close.
-        """
         if not UNINSTALLER_SCRIPT.exists():
             QMessageBox.critical(
                 self,
