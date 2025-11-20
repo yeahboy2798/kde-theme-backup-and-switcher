@@ -52,9 +52,9 @@ The tool works via:
   - If the theme isn’t installed, warns you and lets you install it first.
 
 - Make kde_theme_gui.py executable
-- `chmod +x kde_theme_gui.py`
+  - `chmod +x kde_theme_gui.py`
 - Launch gui
-- `./kde_theme_gui.py`  
+  - `./kde_theme_gui.py`  
 
 ---
 
