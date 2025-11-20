@@ -2,8 +2,8 @@
 import os
 import sys
 import shutil
-
 from pathlib import Path
+
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QTextEdit,
     QMessageBox,
+    QProgressBar,
 )
 from PyQt6.QtCore import Qt, QProcess
 
@@ -27,7 +28,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("KDE Theme Backup & Switcher")
-        self.resize(800, 500)
+        self.resize(800, 520)
 
         self.process: QProcess | None = None
 
@@ -90,9 +91,28 @@ class MainWindow(QMainWindow):
         self.log.setReadOnly(True)
         main_layout.addWidget(self.log, 1)
 
+        # Busy spinner / progress bar (indeterminate)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)  # 0,0 = busy / indeterminate
+        self.progress.setTextVisible(False)
+        self.progress.hide()
+        main_layout.addWidget(self.progress)
+
+        # Status text
+        self.status_label = QLabel("Idle")
+        main_layout.addWidget(self.status_label)
+
         self.load_backups()
 
     # --------- helpers ---------
+
+    def set_busy(self, busy: bool, message: str | None = None):
+        if busy:
+            self.progress.show()
+            self.status_label.setText(message or "Working…")
+        else:
+            self.progress.hide()
+            self.status_label.setText("Idle")
 
     def set_buttons_enabled(self, enabled: bool):
         self.name_edit.setEnabled(enabled)
@@ -133,7 +153,7 @@ class MainWindow(QMainWindow):
 
     # --------- QProcess-based command runner ---------
 
-    def run_cmd(self, args: list[str]):
+    def run_cmd(self, args: list[str], busy_message: str = "Working…"):
         if not self.ensure_cmd_available():
             return
 
@@ -157,11 +177,15 @@ class MainWindow(QMainWindow):
         self.process.finished.connect(self.on_process_finished)
 
         self.set_buttons_enabled(False)
+        self.set_busy(True, busy_message)
         self.process.start()
 
         # Send a newline so any interactive prompts (e.g. theme missing) don't block forever
-        self.process.write(b"\n")
-        self.process.closeWriteChannel()
+        try:
+            self.process.write(b"\n")
+            self.process.closeWriteChannel()
+        except Exception:
+            pass
 
     def on_ready_read(self):
         if self.process is None:
@@ -176,6 +200,7 @@ class MainWindow(QMainWindow):
 
     def on_process_finished(self, exit_code: int, _status):
         self.set_buttons_enabled(True)
+        self.set_busy(False)
         if exit_code == 0:
             self.append_log("✅ Done.")
         else:
@@ -222,13 +247,13 @@ class MainWindow(QMainWindow):
             if ret != QMessageBox.StandardButton.Yes:
                 return
 
-        self.run_cmd([KDE_THEME_CMD, "backup", name])
+        self.run_cmd([KDE_THEME_CMD, "backup", name], busy_message=f"Creating backup '{name}'…")
 
     def restore_theme(self):
         name = self.selected_backup_name()
         if not name:
             return
-        self.run_cmd([KDE_THEME_CMD, "restore", name])
+        self.run_cmd([KDE_THEME_CMD, "restore", name], busy_message=f"Restoring theme from '{name}'…")
 
     def restore_layout(self):
         name = self.selected_backup_name()
@@ -243,7 +268,7 @@ class MainWindow(QMainWindow):
         )
         if ret != QMessageBox.StandardButton.Yes:
             return
-        self.run_cmd([KDE_THEME_CMD, "restore-layout", name])
+        self.run_cmd([KDE_THEME_CMD, "restore-layout", name], busy_message=f"Restoring layout from '{name}'…")
 
     def restore_all(self):
         name = self.selected_backup_name()
@@ -258,7 +283,7 @@ class MainWindow(QMainWindow):
         )
         if ret != QMessageBox.StandardButton.Yes:
             return
-        self.run_cmd([KDE_THEME_CMD, "restore-all", name])
+        self.run_cmd([KDE_THEME_CMD, "restore-all", name], busy_message=f"Restoring theme + layout from '{name}'…")
 
     def delete_backup(self):
         name = self.selected_backup_name()
