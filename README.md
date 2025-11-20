@@ -13,7 +13,7 @@ Perfect for distro hopping or messing with themes without fear 😄
 
 ---
 
-## Features
+## Features and CLI usage
 
 - `kde-theme backup <name>`  
   Create a named snapshot under `~/kde-theme-backups/<name>` and `<name>.tar.gz`.
@@ -38,6 +38,26 @@ Perfect for distro hopping or messing with themes without fear 😄
   - If the theme isn’t installed, warns you and lets you install it first.
 
 ---
+
+The tool works via:
+
+- A **CLI** (`kde-theme`)  
+- An optional **GUI** (`kde_theme_gui.py`) built with PyQt6
+
+## GUI usage
+
+- Requirements:
+  - Python 3
+  - PyQt6 (on Debian/Ubuntu-based distros: `sudo apt install python3-pyqt6`)
+  - If the theme isn’t installed, warns you and lets you install it first.
+
+- Make kde_theme_gui.py executable
+- `chmod +x kde_theme_gui.py`
+- Launch gui
+- `./kde_theme_gui.py`  
+
+---
+
 
 ## Install
 
