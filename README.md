@@ -1,69 +1,161 @@
 # kde-theme-backup
 
-A tiny CLI tool to **snapshot and restore KDE Plasma setups**:
+A tiny CLI & GUI tool to **snapshot, restore, and switch KDE Plasma setups**:
 
 - Global theme (LookAndFeel)
-- Plasma + app theme config
+- Plasma + KDE app configuration
 - Icons, color schemes, wallpapers
 - Kvantum themes & config
-- Latte Dock config/layouts
+- Latte Dock config & layouts
 - Panel & widget layout (optional)
 
-Perfect for distro hopping or messing with themes without fear 😄
+Perfect for **distro hopping**, **theme experimentation**, or **resetting your KDE desktop** without fear 😄.
 
 ---
 
-## Features and CLI usage
+# ✨ Features
 
+### CLI (`kde-theme`)
 - `kde-theme backup <name>`  
-  Create a named snapshot under `~/kde-theme-backups/<name>` and `<name>.tar.gz`.
+  Create a named snapshot under `~/kde-theme-backups/<name>`.
 
 - `kde-theme restore <name>`  
-  Restore **theme only** (no panel/widget layout overwrite).  
-  Also restores Kvantum, icons, wallpapers, Latte configs, etc.
+  Restore **theme only** (safe).
 
 - `kde-theme restore-layout <name>`  
-  Restore **panel & widget layout + Latte layouts**.  
-  Warns about missing plasmoids before applying.
+  Restore **panels, widgets, and Latte Dock**.
 
 - `kde-theme restore-all <name>`  
-  Restore theme **and** layout together.
+  Restore **both theme & layout**.
 
 - `kde-theme list`  
-  List available snapshots.
+  Show all backups.
 
-- Automatically:
-  - Saves the current **Global Theme ID**.
-  - On restore, applies the saved global theme with `lookandfeeltool`.
-  - If the theme isn’t installed, warns you and lets you install it first.
+### Automatic behaviors:
+- Detects and applies the saved **Global Theme ID**
+- Warns about missing plasmoids/widgets
+- Restores Kvantum, icons, color schemes, Latte, wallpapers, etc.
 
----
+### GUI (`kde-theme-gui`)
+A PyQt6 interface to:
 
-The tool works via:
-
-- A **CLI** (`kde-theme`)  
-- An optional **GUI** (`kde_theme_gui.py`) built with PyQt6
-
-## GUI usage
-
-- Requirements:
-  - Python 3
-  - PyQt6 (on Debian/Ubuntu-based distros: `sudo apt install python3-pyqt6`)
-  - If the theme isn’t installed, warns you and lets you install it first.
-
-- Make kde_theme_gui.py executable
-  - `chmod +x kde_theme_gui.py`
-- Launch gui
-  - `./kde_theme_gui.py`  
+- Create backups
+- Restore theme / layout / both
+- Delete backups
+- View log output in real time  
+- No terminal needed
 
 ---
 
+# 🖥️ GUI Usage (Manual Execution)
 
-## Install
+If you want to run the GUI manually from the repo:
+
+### Requirements:
+```bash
+sudo apt install python3 python3-pyqt6
+```
+
+### Run:
 
 ```bash
-git clone git@github.com:yeahboy2798/kde-theme-backup-and-switcher.git
+chmod +x kde_theme_gui.py
+./kde_theme_gui.py
+```
+
+---
+
+# 📦 Install (Development Version, from Repo)
+
+```bash
+git clone https://github.com/yeahboy2798/kde-theme-backup-and-switcher
 cd kde-theme-backup-and-switcher
 chmod +x kde-theme install-kde-theme.sh
 sudo ./install-kde-theme.sh
-# kde-theme-backup-and-switcher
+```
+
+This installs the CLI:
+
+```
+/usr/local/bin/kde-theme
+```
+
+---
+
+# 🧩 Install via .deb (Recommended)
+
+You can install the full application — **CLI + GUI + menu launcher + icon** — using the provided `.deb` package.
+
+### Install:
+
+```bash
+sudo dpkg -i kde-theme-backup_1.0_all.deb
+```
+
+This installs:
+
+| Component | Path |
+|----------|------|
+| CLI (`kde-theme`) | `/usr/bin/kde-theme` |
+| GUI (`kde-theme-gui`) | `/usr/bin/kde-theme-gui` |
+| GUI Python code | `/usr/lib/kde-theme-backup/kde_theme_gui.py` |
+| Application launcher | `/usr/share/applications/kde-theme-backup.desktop` |
+| App icon | `/usr/share/icons/hicolor/256x256/apps/kdethemebackup.png` |
+
+### Run:
+
+CLI:
+
+```bash
+kde-theme list
+```
+
+GUI:
+
+```bash
+kde-theme-gui
+```
+
+Or launch from the KDE Menu:
+
+**KDE Theme Backup & Switcher**
+
+---
+
+# 📁 Backup Format
+
+Backups are stored in:
+
+```
+~/kde-theme-backups/<name>/
+~/kde-theme-backups/<name>.tar.gz
+```
+
+Backups include:
+
+- plasma-org.kde.plasma.desktop-appletsrc  
+- kdeglobals, plasmarc, kwinrc, kwinrulesrc  
+- icons, wallpapers, schemes  
+- Kvantum configs  
+- Latte Dock configs  
+- Panel/widget layout  
+- Global Theme ID  
+
+---
+
+# 🧽 Uninstallation
+
+```bash
+sudo rm /usr/bin/kde-theme
+sudo rm /usr/bin/kde-theme-gui
+sudo rm -r /usr/lib/kde-theme-backup
+sudo rm /usr/share/applications/kde-theme-backup.desktop
+sudo rm /usr/share/icons/hicolor/256x256/apps/kdethemebackup.png
+```
+
+(Optional)
+```bash
+rm -r ~/kde-theme-backups
+```
+
+---
