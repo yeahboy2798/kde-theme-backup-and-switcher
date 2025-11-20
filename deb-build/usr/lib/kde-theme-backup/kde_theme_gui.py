@@ -21,11 +21,11 @@ from PyQt6.QtWidgets import (
     QProgressBar,
 )
 from PyQt6.QtCore import Qt, QProcess
+from PyQt6.QtGui import QPalette, QColor
 
 BACKUP_DIR = Path.home() / "kde-theme-backups"
 KDE_THEME_CMD = "kde-theme"
 
-# Path to optional uninstaller script (to be installed with the app)
 SCRIPT_DIR = Path(__file__).resolve().parent
 UNINSTALLER_SCRIPT = SCRIPT_DIR / "uninstall-kde-theme.sh"
 
@@ -37,7 +37,7 @@ class MainWindow(QMainWindow):
         self.resize(900, 540)
 
         self.process: QProcess | None = None
-        self._after_process = None  # optional callback(exit_code: int)
+        self._after_process = None
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -49,6 +49,13 @@ class MainWindow(QMainWindow):
         top_layout = QHBoxLayout()
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("Backup name (e.g. macosfull, win11-dark, default)")
+
+        # Placeholder/text colours tuned for dark theme:
+        pal = self.name_edit.palette()
+        pal.setColor(QPalette.ColorRole.PlaceholderText, QColor("#bfbfbf"))  # soft gray
+        pal.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.white)
+        self.name_edit.setPalette(pal)
+
         backup_btn = QPushButton("Create Backup")
         backup_btn.clicked.connect(self.create_backup)
 
@@ -58,7 +65,7 @@ class MainWindow(QMainWindow):
 
         main_layout.addLayout(top_layout)
 
-        # Middle: list of backups + buttons
+        # Middle: backup list + controls
         mid_layout = QHBoxLayout()
 
         self.backup_list = QListWidget()
@@ -109,16 +116,16 @@ class MainWindow(QMainWindow):
 
         main_layout.addLayout(mid_layout)
 
-        # Log label + log area
+        # Log area
         main_layout.addWidget(QLabel("Output / Log:"))
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         main_layout.addWidget(self.log, 1)
 
-        # Bottom: full-width progress bar + status label
+        # Full-width progress bar + status
         self.progress = QProgressBar()
         self.progress.setMinimum(0)
-        self.progress.setMaximum(0)  # indeterminate while visible
+        self.progress.setMaximum(0)
         self.progress.setVisible(False)
 
         self.status_label = QLabel("Idle.")
@@ -129,8 +136,7 @@ class MainWindow(QMainWindow):
 
         self.load_backups()
 
-    # --------- helpers ---------
-
+    # ---- Helpers ----
     def set_busy(self, busy: bool, message: str | None = None):
         if busy:
             self.progress.setVisible(True)
@@ -141,24 +147,21 @@ class MainWindow(QMainWindow):
 
         for b in self.control_buttons:
             b.setDisabled(busy)
-
         self.backup_list.setDisabled(busy)
         self.name_edit.setDisabled(busy)
 
     def append_log(self, text: str):
-        if not text:
-            return
-        self.log.append(text)
-        self.log.moveCursor(self.log.textCursor().MoveOperation.End)
+        if text:
+            self.log.append(text)
+            self.log.moveCursor(self.log.textCursor().MoveOperation.End)
 
     def ensure_cmd_available(self) -> bool:
         if shutil.which(KDE_THEME_CMD) is None:
             QMessageBox.critical(
                 self,
                 "kde-theme not found",
-                f"Could not find '{KDE_THEME_CMD}' in PATH.\n\n"
-                "Make sure you installed it with your install script or .deb "
-                "and that /usr/bin is in your PATH.",
+                f"Could not find '{KDE_THEME_CMD}' in PATH.\n"
+                "Install via .deb or installer script."
             )
             return False
         return True
@@ -166,21 +169,15 @@ class MainWindow(QMainWindow):
     def selected_backup_name(self) -> str | None:
         item = self.backup_list.currentItem()
         if not item:
-            QMessageBox.warning(self, "No backup selected", "Please select a backup from the list.")
+            QMessageBox.warning(self, "No backup selected", "Select a backup from the list.")
             return None
         return item.text()
 
-    # ---------- process management (async, non-blocking) ----------
-
-    def _start_process(self, args: list[str], status_message: str | None = None, on_finished=None):
-        if self.process is not None:
-            QMessageBox.warning(
-                self,
-                "Already running",
-                "A command is already running. Please wait for it to finish.",
-            )
+    # ---- QProcess management ----
+    def _start_process(self, args, status_message=None, on_finished=None):
+        if self.process:
+            QMessageBox.warning(self, "Busy", "A task is already running.")
             return
-
         if not args:
             return
 
@@ -195,293 +192,181 @@ class MainWindow(QMainWindow):
         self.process.readyReadStandardError.connect(self._read_stderr)
         self.process.finished.connect(self._process_finished)
 
-        program = args[0]
-        arguments = args[1:]
-        self.process.start(program, arguments)
-
-        if not self.process.waitForStarted(5000):  # 5s to start
+        self.process.start(args[0], args[1:])
+        if not self.process.waitForStarted(5000):
             self.append_log("❌ Failed to start process.")
-            QMessageBox.critical(self, "Error", "Failed to start process.")
-            self.set_busy(False, "Idle.")
+            QMessageBox.critical(self, "Error", "Failed to start command.")
+            self.set_busy(False)
             self.process = None
             self._after_process = None
 
     def _read_stdout(self):
-        if self.process is None:
-            return
-        data = self.process.readAllStandardOutput().data().decode("utf-8", errors="ignore")
-        self.append_log(data.strip())
+        if self.process:
+            out = self.process.readAllStandardOutput().data().decode(errors="ignore")
+            self.append_log(out.strip())
 
     def _read_stderr(self):
-        if self.process is None:
-            return
-        data = self.process.readAllStandardError().data().decode("utf-8", errors="ignore")
-        self.append_log(data.strip())
+        if self.process:
+            err = self.process.readAllStandardError().data().decode(errors="ignore")
+            self.append_log(err.strip())
 
-    def _process_finished(self, exit_code: int, exit_status):
-        if self.process is None:
-            return
-
+    def _process_finished(self, exit_code, _):
         if exit_code != 0:
-            self.append_log(f"❌ Command exited with status {exit_code}")
-            QMessageBox.warning(
-                self,
-                "Command failed",
-                f"Command exited with status {exit_code}.\nSee log for details.",
-            )
+            self.append_log(f"❌ Command exited with {exit_code}")
+            QMessageBox.warning(self, "Failed", "Command failed. See log.")
         else:
             self.append_log("✅ Done.")
 
-        self.set_busy(False, "Idle.")
+        self.set_busy(False)
 
         cb = self._after_process
         self.process = None
         self._after_process = None
+        if cb:
+            cb(exit_code)
 
-        if cb is not None:
-            try:
-                cb(exit_code)
-            except Exception as e:
-                self.append_log(f"❌ Error in callback: {e}")
+    def run_cmd(self, args, status_message=None, on_finished=None):
+        if self.ensure_cmd_available():
+            self._start_process(args, status_message, on_finished)
 
-    def run_cmd(self, args: list[str], status_message: str | None = None, on_finished=None):
-        if not self.ensure_cmd_available():
-            return
-        self._start_process(args, status_message=status_message, on_finished=on_finished)
-
-    # --------- actions ---------
-
+    # ---- Main actions ----
     def load_backups(self):
         self.backup_list.clear()
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-        if not BACKUP_DIR.exists():
-            return
-
-        backups = sorted(
-            [p.name for p in BACKUP_DIR.iterdir() if p.is_dir()],
-            key=str.lower,
-        )
+        backups = sorted([p.name for p in BACKUP_DIR.iterdir() if p.is_dir()], key=str.lower)
         self.backup_list.addItems(backups)
         self.append_log("🔄 Backup list updated.")
 
     def create_backup(self):
         name = self.name_edit.text().strip()
         if not name:
-            QMessageBox.warning(self, "No name", "Please enter a backup name.")
+            QMessageBox.warning(self, "No name", "Enter a backup name.")
             return
-
         if any(c in name for c in " /\\:"):
-            QMessageBox.warning(self, "Invalid name", "Backup name cannot contain spaces or / \\ :")
+            QMessageBox.warning(self, "Invalid name", "No spaces or / : \\ allowed.")
             return
 
-        target_dir = BACKUP_DIR / name
-        if target_dir.exists():
-            ret = QMessageBox.question(
-                self,
-                "Overwrite?",
-                f"A backup named '{name}' already exists.\n\n"
-                "Do you want to overwrite it?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if ret != QMessageBox.StandardButton.Yes:
-                return
-
-        def after_backup(exit_code: int):
-            if exit_code == 0:
+        def after_backup(code):
+            if code == 0:
                 self.load_backups()
 
-        self.run_cmd(
-            [KDE_THEME_CMD, "backup", name],
-            status_message=f"Creating backup '{name}'…",
-            on_finished=after_backup,
-        )
+        self.run_cmd([KDE_THEME_CMD, "backup", name],
+                     f"Creating backup '{name}'…",
+                     after_backup)
 
     def restore_theme(self):
         name = self.selected_backup_name()
-        if not name:
-            return
-        self.run_cmd(
-            [KDE_THEME_CMD, "restore", name],
-            status_message=f"Restoring theme from '{name}'…",
-        )
+        if name:
+            self.run_cmd([KDE_THEME_CMD, "restore", name],
+                         f"Restoring theme '{name}'…")
 
     def restore_layout(self):
         name = self.selected_backup_name()
         if not name:
             return
-        ret = QMessageBox.question(
-            self,
-            "Restore layout?",
-            "This will overwrite your current Plasma panels/widgets and Latte layout "
-            f"with the layout from '{name}'.\n\nContinue?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if ret != QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(
+            self, "Restore layout?",
+            f"Overwrite your current layout with '{name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        ) != QMessageBox.StandardButton.Yes:
             return
-        self.run_cmd(
-            [KDE_THEME_CMD, "restore-layout", name],
-            status_message=f"Restoring layout from '{name}'…",
-        )
+        self.run_cmd([KDE_THEME_CMD, "restore-layout", name],
+                     f"Restoring layout '{name}'…")
 
     def restore_all(self):
         name = self.selected_backup_name()
         if not name:
             return
-        ret = QMessageBox.question(
-            self,
-            "Restore theme + layout?",
-            "This will restore THEME and LAYOUT from the backup.\n\n"
-            "Your current layout and theme may be overwritten.\n\nContinue?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if ret != QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(
+            self, "Restore all?",
+            f"Restore THEME + LAYOUT from '{name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        ) != QMessageBox.StandardButton.Yes:
             return
-        self.run_cmd(
-            [KDE_THEME_CMD, "restore-all", name],
-            status_message=f"Restoring theme + layout from '{name}'…",
-        )
+        self.run_cmd([KDE_THEME_CMD, "restore-all", name],
+                     f"Restoring theme + layout '{name}'…")
 
     def delete_backup(self):
         name = self.selected_backup_name()
         if not name:
             return
-
-        ret = QMessageBox.question(
-            self,
-            "Delete backup?",
-            f"Delete backup '{name}' and its archive?\n\nThis cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if ret != QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(
+            self, "Delete backup?",
+            f"Delete '{name}' permanently?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        ) != QMessageBox.StandardButton.Yes:
             return
 
-        dir_path = BACKUP_DIR / name
-        tar_path = BACKUP_DIR / f"{name}.tar.gz"
-
-        try:
-            if dir_path.exists():
-                shutil.rmtree(dir_path)
-            if tar_path.exists():
-                tar_path.unlink()
-            self.append_log(f"🗑 Deleted backup '{name}'.")
-        except Exception as e:
-            QMessageBox.critical(self, "Delete error", str(e))
-            self.append_log(f"❌ Error deleting backup '{name}': {e}")
-            return
-
+        shutil.rmtree(BACKUP_DIR / name, ignore_errors=True)
+        tar = BACKUP_DIR / f"{name}.tar.gz"
+        if tar.exists():
+            tar.unlink()
+        self.append_log(f"🗑 Deleted '{name}'.")
         self.load_backups()
 
     def import_backup(self):
         start_dir = str(Path.home())
         file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Import backup archive",
-            start_dir,
-            "KDE theme backups (*.tar.gz);;All files (*)",
-        )
+            self, "Import backup archive", start_dir,
+            "KDE Backups (*.tar.gz);;All files (*)")
         if not file_path:
             return
 
         file_path = Path(file_path)
         name = file_path.stem
 
-        ret = QMessageBox.question(
-            self,
-            "Import backup?",
-            f"Import backup from archive:\n{file_path}\n\n"
-            f"It will appear as '{name}' in your backup list.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if ret != QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(
+            self, "Import?",
+            f"Import '{file_path.name}' as '{name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        ) != QMessageBox.StandardButton.Yes:
             return
 
-        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        target = BACKUP_DIR / name
+        if target.exists():
+            shutil.rmtree(target)
 
-        target_dir = BACKUP_DIR / name
-        if target_dir.exists():
-            ret2 = QMessageBox.question(
-                self,
-                "Overwrite existing backup?",
-                f"A backup directory '{name}' already exists in {BACKUP_DIR}.\n\n"
-                "Do you want to overwrite its contents with the imported archive?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if ret2 != QMessageBox.StandardButton.Yes:
-                return
-            try:
-                shutil.rmtree(target_dir)
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to clear existing backup: {e}")
-                return
-
-        def after_import(exit_code: int):
-            if exit_code == 0:
+        def after_import(code):
+            if code == 0:
                 try:
-                    dest_tar = BACKUP_DIR / file_path.name
-                    if file_path.resolve() != dest_tar.resolve():
-                        shutil.copy2(file_path, dest_tar)
-                except Exception as e:
-                    self.append_log(f"⚠️ Could not copy archive into backup dir: {e}")
-                self.append_log(f"📥 Imported backup archive '{file_path.name}' as '{name}'.")
+                    shutil.copy2(file_path, BACKUP_DIR / file_path.name)
+                except Exception:
+                    pass
+                self.append_log(f"📥 Imported '{file_path.name}'.")
                 self.load_backups()
 
-        self._start_process(
+        self.run_cmd(
             ["tar", "-xzf", str(file_path), "-C", str(BACKUP_DIR)],
-            status_message=f"Importing backup from '{file_path.name}'…",
-            on_finished=after_import,
-        )
+            f"Importing '{file_path.name}'…",
+            after_import)
 
     def uninstall_app(self):
         if not UNINSTALLER_SCRIPT.exists():
-            QMessageBox.critical(
-                self,
-                "Uninstaller not found",
-                f"Could not find uninstaller script at:\n{UNINSTALLER_SCRIPT}\n\n"
-                "If you installed via a .deb or package manager, you can also run:\n"
-                "  sudo dpkg -r kde-theme-backup\n"
-                "or:\n"
-                "  sudo kde-theme uninstall (if supported by your version).",
-            )
+            QMessageBox.critical(self, "Missing",
+                f"Uninstaller not found:\n{UNINSTALLER_SCRIPT}")
             return
 
-        ret = QMessageBox.question(
-            self,
-            "Uninstall application?",
-            "This will remove the KDE Theme Backup CLI and GUI from this system.\n\n"
-            "You may need to enter your password. Continue?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if ret != QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(
+            self, "Uninstall?",
+            "Remove KDE Theme Backup + GUI?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        ) != QMessageBox.StandardButton.Yes:
             return
 
-        pkexec_path = shutil.which("pkexec")
-        if pkexec_path is None:
-            QMessageBox.warning(
-                self,
-                "pkexec not found",
-                "Could not find 'pkexec' for graphical privilege elevation.\n"
-                "The uninstaller may not work from the GUI.\n\n"
-                "You can run this manually in a terminal instead:\n"
-                f"  sudo {UNINSTALLER_SCRIPT}",
-            )
+        pkexec = shutil.which("pkexec")
+        if not pkexec:
+            QMessageBox.warning(self, "pkexec missing",
+                f"Run manually:\n  sudo {UNINSTALLER_SCRIPT}")
             return
 
-        def after_uninstall(exit_code: int):
-            if exit_code == 0:
-                self.append_log("✅ Uninstall complete.")
-                QMessageBox.information(
-                    self,
-                    "Uninstalled",
-                    "KDE Theme Backup & Switcher has been uninstalled.\n"
-                    "This window will now close.",
-                )
+        def after_uninstall(code):
+            if code == 0:
+                QMessageBox.information(self, "Done", "Uninstalled.")
                 QApplication.instance().quit()
 
-        self._start_process(
-            [pkexec_path, str(UNINSTALLER_SCRIPT)],
-            status_message="Uninstalling application…",
-            on_finished=after_uninstall,
-        )
+        self.run_cmd([pkexec, str(UNINSTALLER_SCRIPT)],
+                     "Uninstalling…",
+                     after_uninstall)
 
 
 def main():

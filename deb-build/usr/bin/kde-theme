@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# kde-theme: KDE Plasma theme + layout backup/restore utility
+# Snapshot current user setup and restore it on the SAME account.
+# Features:
+#   - Backup:  kde-theme backup <name>
+#   - Restore: kde-theme restore <name>         (theme only)
+#   - Layout:  kde-theme restore-layout <name>  (panels/widgets/Latte)
+#   - Both:    kde-theme restore-all <name>
+#   - List:    kde-theme list
+#   - Uninstall: sudo kde-theme uninstall
+
 BASE_DIR="$HOME/kde-theme-backups"
 
 ensure_base_dir() {
@@ -41,7 +51,7 @@ check_missing_plasmoids() {
         for m in "${missing[@]}"; do
             echo "   • $m"
         done
-        echo "You may want to install these widgets from Discover/store.kde.org for a perfect restore."
+        echo "You may want to install these widgets (e.g. from Discover or store.kde.org) for a perfect restore."
     else
         echo "✅ All plasmoids referenced in the layout appear to be installed."
     fi
@@ -66,10 +76,7 @@ apply_global_theme() {
     echo "🎨 Saved global theme in backup: '$THEME_ID'"
 
     local exists="no"
-    if [ -d "$HOME/.local/share/plasma/look-and-feel/$THEME_ID" ] || \
-       [ -d "/usr/share/plasma/look-and-feel/$THEME_ID" ] || \
-       [ -f "$HOME/.local/share/plasma/look-and-feel/$THEME_ID.desktop" ] || \
-       [ -f "/usr/share/plasma/look-and-feel/$THEME_ID.desktop" ]; then
+    if [ -d "$HOME/.local/share/plasma/look-and-feel/$THEME_ID" ] ||        [ -d "/usr/share/plasma/look-and-feel/$THEME_ID" ] ||        [ -f "$HOME/.local/share/plasma/look-and-feel/$THEME_ID.desktop" ] ||        [ -f "/usr/share/plasma/look-and-feel/$THEME_ID.desktop" ]; then
         exists="yes"
     fi
 
@@ -83,11 +90,7 @@ apply_global_theme() {
             return
         fi
 
-        # Re-check after user had a chance to install it
-        if [ ! -d "$HOME/.local/share/plasma/look-and-feel/$THEME_ID" ] && \
-           [ ! -d "/usr/share/plasma/look-and-feel/$THEME_ID" ] && \
-           [ ! -f "$HOME/.local/share/plasma/look-and-feel/$THEME_ID.desktop" ] && \
-           [ ! -f "/usr/share/plasma/look-and-feel/$THEME_ID.desktop" ]; then
+        if [ ! -d "$HOME/.local/share/plasma/look-and-feel/$THEME_ID" ] &&            [ ! -d "/usr/share/plasma/look-and-feel/$THEME_ID" ] &&            [ ! -f "$HOME/.local/share/plasma/look-and-feel/$THEME_ID.desktop" ] &&            [ ! -f "/usr/share/plasma/look-and-feel/$THEME_ID.desktop" ]; then
             echo "❌ Theme '$THEME_ID' still not found; skipping."
             return
         fi
@@ -95,9 +98,7 @@ apply_global_theme() {
 
     if command -v lookandfeeltool >/dev/null 2>&1; then
         echo "🔄 Applying global theme '$THEME_ID' via lookandfeeltool…"
-        lookandfeeltool -a "$THEME_ID" 2>/dev/null || \
-        lookandfeeltool -a "$THEME_ID.desktop" 2>/dev/null || \
-        echo "⚠️ Failed to apply theme with lookandfeeltool."
+        lookandfeeltool -a "$THEME_ID" 2>/dev/null ||         lookandfeeltool -a "$THEME_ID.desktop" 2>/dev/null ||         echo "⚠️ Failed to apply theme with lookandfeeltool."
     else
         echo "⚠️ 'lookandfeeltool' not found; cannot auto-apply global theme."
     fi
@@ -373,6 +374,44 @@ list_backups() {
     ls "$BASE_DIR"
 }
 
+# ---------- UNINSTALL (CLI) ----------
+uninstall_self() {
+    echo "This will remove the KDE Theme Backup CLI + GUI from your system."
+    echo
+
+    if [ "$EUID" -ne 0 ]; then
+        echo "❌ Please run as root:"
+        echo "   sudo kde-theme uninstall"
+        exit 1
+    fi
+
+    echo "🗑 Removing binaries and files…"
+
+    rm -f /usr/bin/kde-theme 2>/dev/null || true
+    rm -f /usr/bin/kde-theme-gui 2>/dev/null || true
+    rm -rf /usr/lib/kde-theme-backup 2>/dev/null || true
+    rm -f /usr/share/applications/kde-theme-backup.desktop 2>/dev/null || true
+
+    ICON_BASE="/usr/share/icons/hicolor"
+    for size in 16x16 24x24 32x32 48x48 64x64 128x128 256x256 512x512 scalable; do
+        rm -f "$ICON_BASE/$size/apps/kde-theme-backup.png" 2>/dev/null || true
+    done
+
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        echo "🔄 Updating icon cache…"
+        gtk-update-icon-cache -f /usr/share/icons/hicolor >/dev/null 2>&1 || true
+    fi
+
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        echo "🔄 Updating desktop database…"
+        update-desktop-database >/dev/null 2>&1 || true
+    fi
+
+    echo "✅ Uninstall complete!"
+    echo "If this was installed via a .deb, you may also want to run:"
+    echo "  sudo dpkg -r kde-theme-backup"
+}
+
 case "$1" in
     backup)
         backup "$2"
@@ -389,8 +428,11 @@ case "$1" in
     list)
         list_backups
         ;;
+    uninstall)
+        uninstall_self
+        ;;
     *)
-        echo "KDE theme backup/restore utility"
+        echo "KDE theme backup/restore utility (stable CLI)"
         echo
         echo "Usage:"
         echo "  kde-theme backup <name>         # create a named backup (theme + layout + Kvantum + Latte)"
@@ -398,6 +440,7 @@ case "$1" in
         echo "  kde-theme restore-layout <name> # restore widget/panel/Latte layout from backup"
         echo "  kde-theme restore-all <name>    # restore theme + layout together"
         echo "  kde-theme list                  # list available backups"
+        echo "  sudo kde-theme uninstall        # uninstall CLI + GUI from system"
         echo
         echo "Backups are stored in: $BASE_DIR"
         ;;

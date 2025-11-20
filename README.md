@@ -155,11 +155,9 @@ sudo rm -r /usr/lib/kde-theme-backup
 sudo rm /usr/share/applications/kde-theme-backup.desktop
 sudo rm /usr/share/icons/hicolor/256x256/apps/kdethemebackup.png
 ```
-
+```bash
 You can also uninstall via GUI or CLI
-
-
-
+```
 
 (Optional)
 ```bash
