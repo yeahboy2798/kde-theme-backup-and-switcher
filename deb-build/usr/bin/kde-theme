@@ -220,15 +220,15 @@ restore_theme() {
         echo "❌ Backup '$NAME' not found in $BASE_DIR"
         exit 1
     fi
-    # Apply global theme first
-    apply_global_theme "$BACKUP_DIR"
-
 
     echo "🟣 Restoring KDE theme (without layout) from '$NAME'..."
 
     if [ -f "$BASE_DIR/$NAME.tar.gz" ]; then
         tar -xzf "$BASE_DIR/$NAME.tar.gz" -C "$BASE_DIR"
     fi
+
+    # Apply global theme first (base look)
+    apply_global_theme "$BACKUP_DIR"
 
     # 1) Core KDE config files
     local cfg_files=(
@@ -295,7 +295,7 @@ restore_theme() {
         cp -r "$BACKUP_DIR/latte-share/"* "$HOME/.local/share/" 2>/dev/null || true
     fi
 
-    # Apply global theme if saved
+    # Apply global theme if saved (already applied earlier)
     # apply_global_theme "$BACKUP_DIR"
 
     echo "🔄 Reloading KWin configuration…"
