@@ -6,6 +6,6 @@ Architecture: all
 Maintainer: yeahboy2798
 Depends: bash, python3, python3-pyqt6
 Description: Backup and restore KDE Plasma themes, layouts, and appearance.
- KDE Theme Backup & Switcher provides a simple CLI (kde-theme) and GUI
- to snapshot and restore KDE theme setups, including panels, widgets,
- icons, colors, cursors, Kvantum, and Latte Dock layouts.
+ KDE Theme Backup & Switcher provides a simple CLI and GUI
+ to snapshot and restore full KDE theme setups including panels,
+ widgets, icons, colors, cursors, Kvantum, and Latte Dock layouts.
