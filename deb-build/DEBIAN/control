@@ -1,13 +1,11 @@
 Package: kde-theme-backup
-Version: 1.0
+Version: 1.0.0
 Section: utils
 Priority: optional
 Architecture: all
-Maintainer: yeahboy2798 <you@example.com>
-Depends: python3, python3-pyqt6
-Conflicts: kde-theme-backup-gui
-Replaces: kde-theme-backup-gui
-Provides: kde-theme-backup-gui
-Description: KDE Theme Backup & Switcher (CLI + GUI)
- A tool to backup, restore, and switch KDE Plasma themes, layouts, widgets, Kvantum, and Latte Dock.
- Includes both the kde-theme CLI and the kde-theme-gui graphical interface.
+Maintainer: yeahboy2798
+Depends: bash, python3, python3-pyqt6
+Description: Backup and restore KDE Plasma themes, layouts, and appearance.
+ KDE Theme Backup & Switcher provides a simple CLI (kde-theme) and GUI
+ to snapshot and restore KDE theme setups, including panels, widgets,
+ icons, colors, cursors, Kvantum, and Latte Dock layouts.

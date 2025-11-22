@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# kde-theme: KDE Plasma theme + layout backup/restore utility
+# kde-theme: KDE Plasma theme + layout backup/restore utility 
 # Snapshot current user setup and restore it on the SAME account.
 # Features:
 #   - Backup:  kde-theme backup <name>
@@ -220,6 +220,9 @@ restore_theme() {
         echo "❌ Backup '$NAME' not found in $BASE_DIR"
         exit 1
     fi
+    # Apply global theme first
+    apply_global_theme "$BACKUP_DIR"
+
 
     echo "🟣 Restoring KDE theme (without layout) from '$NAME'..."
 
@@ -293,7 +296,7 @@ restore_theme() {
     fi
 
     # Apply global theme if saved
-    apply_global_theme "$BACKUP_DIR"
+    # apply_global_theme "$BACKUP_DIR"
 
     echo "🔄 Reloading KWin configuration…"
     qdbus org.kde.KWin /KWin reconfigure 2>/dev/null || true
