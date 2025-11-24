@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# kde-theme: KDE Plasma theme + layout backup/restore utility
+# kde-theme: KDE Plasma theme + layout backup/restore utility 
 # Snapshot current user setup and restore it on the SAME account.
 # Features:
 #   - Backup:  kde-theme backup <name>

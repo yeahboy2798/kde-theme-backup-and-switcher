@@ -8,3 +8,6 @@ chmod +x deb-build/usr/lib/kde-theme-backup/kde_theme_gui.py
 dpkg-deb --build deb-build
 mv deb-build.deb installer.deb
 sudo dpkg -i installer.deb
+
+
+
