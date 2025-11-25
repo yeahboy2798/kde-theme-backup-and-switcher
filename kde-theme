@@ -1,68 +1,49 @@
 #!/bin/bash
-
-# kde-theme: KDE Plasma theme + layout backup/restore utility 
-# Snapshot current user setup and restore it on the SAME account.
-# Features:
-#   - Backup:  kde-theme backup <name>
-#   - Restore: kde-theme restore <name>         (theme only)
-#   - Layout:  kde-theme restore-layout <name>  (panels/widgets/Latte)
-#   - Both:    kde-theme restore-all <name>
-#   - List:    kde-theme list
-#   - Uninstall: sudo kde-theme uninstall
+# kde-theme v8 (stable experimental)
+#
+# KDE Plasma theme + layout backup/restore utility
+# Workflow for full theme switching:
+#   - backup:  kde-theme backup <name>
+#   - restore: kde-theme restore <name>         (theme only, NO global-theme auto-apply)
+#   - layout:  kde-theme restore-layout <name>  (panels/widgets/Latte only)
+#   - both:    kde-theme restore-all <name>     (APPLY GLOBAL THEME FIRST, then your overrides + layout)
+#   - list:    kde-theme list
+#   - uninstall: sudo kde-theme uninstall
+#
+# Behavior:
+#   * Backups capture:
+#       - kdeglobals, kwinrc, plasmarc, kcmstyle, kcminputrc, fonts, splash, etc.
+#       - Plasma layout file (plasma-org.kde.plasma.desktop-appletsrc)
+#       - ~/.local/share plasma*/icons/color-schemes/wallpapers/konsole/aurorae
+#       - Kvantum config + themes
+#       - Latte Dock config + layouts
+#       - GTK 3/4 config, fontconfig, cursor selector (~/.icons/default)
+#   * restore:
+#       - Restores all of the above, but does NOT auto-apply the global LookAndFeel theme.
+#   * restore-all:
+#       - Extracts backup
+#       - Applies saved global theme via lookandfeeltool (if available)
+#       - Waits briefly
+#       - Restores configs/assets (your overrides)
+#       - Restores layout
+#       - Restarts KWin + plasmashell for a clean layout reload
 
 BASE_DIR="$HOME/kde-theme-backups"
+DEBUG="${KDE_THEME_DEBUG:-0}"
 
-ensure_base_dir() {
-    mkdir -p "$BASE_DIR"
+log_debug() {
+    [ "$DEBUG" = "1" ] && echo "[DEBUG] $*"
 }
 
-# ---------- Helper: detect missing plasmoids from backup ----------
-check_missing_plasmoids() {
-    local backup_dir="$1"
-    local cfg="$backup_dir/plasma-org.kde.plasma.desktop-appletsrc"
+ensure_base_dir() { mkdir -p "$BASE_DIR"; }
 
-    if [ ! -f "$cfg" ]; then
-        return
-    fi
-
-    echo "🔍 Scanning for missing plasmoids in layout…"
-
-    mapfile -t plugins < <(grep -oP '(?<=plugin=)[^\n]+' "$cfg" 2>/dev/null | sort -u)
-
-    declare -A installed
-    for dir in /usr/share/plasma/plasmoids "$HOME/.local/share/plasma/plasmoids"; do
-        if [ -d "$dir" ]; then
-            for p in "$dir"/*; do
-                [ -d "$p" ] || continue
-                installed["$(basename "$p")"]=1
-            done
-        fi
-    done
-
-    local missing=()
-    for plugin in "${plugins[@]}"; do
-        if [ -z "${installed[$plugin]}" ]; then
-            missing+=("$plugin")
-        fi
-    done
-
-    if [ "${#missing[@]}" -gt 0 ]; then
-        echo "⚠️  The following plasmoids from the backup layout are not installed on this system:"
-        for m in "${missing[@]}"; do
-            echo "   • $m"
-        done
-        echo "You may want to install these widgets (e.g. from Discover or store.kde.org) for a perfect restore."
-    else
-        echo "✅ All plasmoids referenced in the layout appear to be installed."
-    fi
-}
-
-# ---------- Helper: apply saved global theme ----------
+# ---------- Helper: apply saved global theme (used ONLY in restore-all) ----------
 apply_global_theme() {
     local backup_dir="$1"
     local theme_file="$backup_dir/global-theme-id.txt"
 
     if [ ! -f "$theme_file" ]; then
+        log_debug "No global-theme-id.txt in backup; skipping global theme apply."
         return
     fi
 
@@ -70,38 +51,23 @@ apply_global_theme() {
     THEME_ID="$(head -n1 "$theme_file" | tr -d '\r\n')"
 
     if [ -z "$THEME_ID" ]; then
+        log_debug "Theme ID file empty; skipping."
         return
     fi
 
-    echo "🎨 Saved global theme in backup: '$THEME_ID'"
+    echo "🎨 Applying base global theme '$THEME_ID' via lookandfeeltool…"
 
-    local exists="no"
-    if [ -d "$HOME/.local/share/plasma/look-and-feel/$THEME_ID" ] ||        [ -d "/usr/share/plasma/look-and-feel/$THEME_ID" ] ||        [ -f "$HOME/.local/share/plasma/look-and-feel/$THEME_ID.desktop" ] ||        [ -f "/usr/share/plasma/look-and-feel/$THEME_ID.desktop" ]; then
-        exists="yes"
+    if ! command -v lookandfeeltool >/dev/null 2>&1; then
+        echo "⚠️ lookandfeeltool not found; cannot auto-apply global theme."
+        return
     fi
 
-    if [ "$exists" = "no" ]; then
-        echo "⚠️ Global theme '$THEME_ID' is not installed on this system."
-        echo "   Install it (System Settings → Global Theme → Get New…)"
-        read -r -p "After installing it, press ENTER to try applying it, or type 'skip' to continue: " ans
+    lookandfeeltool -a "$THEME_ID" 2>/dev/null || \
+    lookandfeeltool -a "$THEME_ID.desktop" 2>/dev/null || \
+    echo "⚠️ Failed to apply theme through lookandfeeltool (theme may not be fully installed)."
 
-        if [ "$ans" = "skip" ] || [ "$ans" = "s" ]; then
-            echo "Skipping global theme application."
-            return
-        fi
-
-        if [ ! -d "$HOME/.local/share/plasma/look-and-feel/$THEME_ID" ] &&            [ ! -d "/usr/share/plasma/look-and-feel/$THEME_ID" ] &&            [ ! -f "$HOME/.local/share/plasma/look-and-feel/$THEME_ID.desktop" ] &&            [ ! -f "/usr/share/plasma/look-and-feel/$THEME_ID.desktop" ]; then
-            echo "❌ Theme '$THEME_ID' still not found; skipping."
-            return
-        fi
-    fi
-
-    if command -v lookandfeeltool >/dev/null 2>&1; then
-        echo "🔄 Applying global theme '$THEME_ID' via lookandfeeltool…"
-        lookandfeeltool -a "$THEME_ID" 2>/dev/null ||         lookandfeeltool -a "$THEME_ID.desktop" 2>/dev/null ||         echo "⚠️ Failed to apply theme with lookandfeeltool."
-    else
-        echo "⚠️ 'lookandfeeltool' not found; cannot auto-apply global theme."
-    fi
+    # Give KDE a moment to finish writing configs before we overwrite with our backup
+    sleep 1
 }
 
 # ---------- BACKUP ----------
@@ -117,7 +83,7 @@ backup() {
     local BACKUP_DIR="$BASE_DIR/$NAME"
     mkdir -p "$BACKUP_DIR"
 
-    echo "🔵 Backing up KDE theme/layout as '$NAME'..."
+    echo "🔵 Backing up KDE theme/layout as '$NAME'…"
     echo "Backup directory: $BACKUP_DIR"
 
     # 0) Save current LookAndFeelPackage from kdeglobals (global theme ID)
@@ -130,12 +96,13 @@ backup() {
         fi
     fi
 
-    # 1) Layout (panels, widgets, activities)
+    # 1) Layout
     if [ -f "$HOME/.config/plasma-org.kde.plasma.desktop-appletsrc" ]; then
+        log_debug "Backing up plasma layout file"
         cp "$HOME/.config/plasma-org.kde.plasma.desktop-appletsrc" "$BACKUP_DIR/"
     fi
 
-    # 2) Core KDE/Plasma config files
+    # 2) Core KDE/Plasma config files (extended)
     local cfg_files=(
         plasmarc
         kdeglobals
@@ -145,10 +112,15 @@ backup() {
         systemsettingsrc
         konsolerc
         dolphinrc
+        kcminputrc    # mouse/cursor
+        kcmfonts      # fonts
+        kcmstyle      # app style
+        ksplashrc     # splash
     )
 
     for f in "${cfg_files[@]}"; do
         if [ -f "$HOME/.config/$f" ]; then
+            log_debug "Backing up config file $f"
             cp "$HOME/.config/$f" "$BACKUP_DIR/"
         fi
     done
@@ -170,6 +142,7 @@ backup() {
         for d in "${theme_dirs[@]}"; do
             for real in $d; do
                 if [ -e "$real" ]; then
+                    log_debug "Backing up theme directory $real"
                     cp -r "$real" "$BACKUP_DIR/" 2>/dev/null || true
                 fi
             done
@@ -180,23 +153,46 @@ backup() {
 
     # 4) Kvantum themes & config
     if [ -d "$HOME/.config/Kvantum" ]; then
+        log_debug "Backing up Kvantum config"
         cp -r "$HOME/.config/Kvantum" "$BACKUP_DIR/Kvantum-config"
     fi
     if [ -d "$HOME/.local/share/Kvantum" ]; then
+        log_debug "Backing up Kvantum themes"
         cp -r "$HOME/.local/share/Kvantum" "$BACKUP_DIR/Kvantum-themes"
     fi
 
     # 5) Latte Dock config & layouts
     if compgen -G "$HOME/.config/latte*" > /dev/null; then
         mkdir -p "$BACKUP_DIR/latte-config"
+        log_debug "Backing up Latte Dock config"
         cp -r "$HOME"/.config/latte* "$BACKUP_DIR/latte-config/" 2>/dev/null || true
     fi
     if compgen -G "$HOME/.local/share/latte*" > /dev/null; then
         mkdir -p "$BACKUP_DIR/latte-share"
+        log_debug "Backing up Latte Dock share data"
         cp -r "$HOME"/.local/share/latte* "$BACKUP_DIR/latte-share/" 2>/dev/null || true
     fi
 
-    # 6) Tar snapshot of this backup
+    # 6) GTK config, fontconfig, cursor selector
+    if [ -d "$HOME/.config/gtk-3.0" ]; then
+        log_debug "Backing up GTK 3 settings (~/.config/gtk-3.0)"
+        cp -r "$HOME/.config/gtk-3.0" "$BACKUP_DIR/gtk-3.0-config"
+    fi
+    if [ -d "$HOME/.config/gtk-4.0" ]; then
+        log_debug "Backing up GTK 4 settings (~/.config/gtk-4.0)"
+        cp -r "$HOME/.config/gtk-4.0" "$BACKUP_DIR/gtk-4.0-config"
+    fi
+    if [ -d "$HOME/.config/fontconfig" ]; then
+        log_debug "Backing up fontconfig (~/.config/fontconfig)"
+        cp -r "$HOME/.config/fontconfig" "$BACKUP_DIR/fontconfig-config"
+    fi
+    if [ -d "$HOME/.icons/default" ]; then
+        log_debug "Backing up cursor default selector (~/.icons/default)"
+        mkdir -p "$BACKUP_DIR/icons-meta"
+        cp -r "$HOME/.icons/default" "$BACKUP_DIR/icons-meta/default"
+    fi
+
+    # 7) Tar snapshot of this backup
     tar -czf "$BASE_DIR/$NAME.tar.gz" -C "$BASE_DIR" "$NAME"
 
     echo "✅ Backup complete!"
@@ -204,7 +200,112 @@ backup() {
     echo " - Archive:   $BASE_DIR/$NAME.tar.gz"
 }
 
-# ---------- RESTORE THEME ONLY (no layout overwrite) ----------
+# ---------- Core restore of THEME FILES ONLY (no layout, no global-theme) ----------
+restore_theme_files() {
+    local BACKUP_DIR="$1"
+
+    # 1) Core configs
+    local cfg_files=(
+        plasmarc
+        kdeglobals
+        kwinrc
+        kwinrulesrc
+        kscreenlockerrc
+        systemsettingsrc
+        konsolerc
+        dolphinrc
+        kcminputrc
+        kcmfonts
+        kcmstyle
+        ksplashrc
+    )
+
+    mkdir -p "$HOME/.config"
+    for f in "${cfg_files[@]}"; do
+        if [ -f "$BACKUP_DIR/$f" ]; then
+            log_debug "Restoring config file $f"
+            cp "$BACKUP_DIR/$f" "$HOME/.config/"
+        fi
+    done
+
+    # 2) ~/.local/share theme assets
+    mkdir -p "$HOME/.local/share"
+    local theme_dirs=(
+        plasma
+        plasma-desktop
+        plasma-shell
+        icons
+        color-schemes
+        konsole
+        aurorae
+        wallpapers
+    )
+
+    for d in "${theme_dirs[@]}"; do
+        if [ -d "$BACKUP_DIR/$d" ]; then
+            log_debug "Restoring theme directory $d"
+            cp -r "$BACKUP_DIR/$d" "$HOME/.local/share/"
+        fi
+    done
+
+    for d in "$BACKUP_DIR"/plasma*; do
+        [ -d "$d" ] || continue
+        log_debug "Restoring extra plasma directory $(basename "$d")"
+        cp -r "$d" "$HOME/.local/share/"
+    done
+
+    # 3) Kvantum
+    if [ -d "$BACKUP_DIR/Kvantum-config" ]; then
+        mkdir -p "$HOME/.config"
+        log_debug "Restoring Kvantum config"
+        cp -r "$BACKUP_DIR/Kvantum-config" "$HOME/.config/Kvantum"
+    fi
+    if [ -d "$BACKUP_DIR/Kvantum-themes" ]; then
+        mkdir -p "$HOME/.local/share"
+        log_debug "Restoring Kvantum themes"
+        cp -r "$BACKUP_DIR/Kvantum-themes" "$HOME/.local/share/Kvantum"
+    fi
+
+    # 4) Latte basic appearance (but NOT layout file; that’s handled separately)
+    if [ -d "$BACKUP_DIR/latte-config" ]; then
+        mkdir -p "$HOME/.config"
+        log_debug "Restoring Latte Dock config"
+        cp -r "$BACKUP_DIR/latte-config/"* "$HOME/.config/" 2>/dev/null || true
+    fi
+    if [ -d "$BACKUP_DIR/latte-share" ]; then
+        mkdir -p "$HOME/.local/share"
+        log_debug "Restoring Latte Dock share data"
+        cp -r "$BACKUP_DIR/latte-share/"* "$HOME/.local/share/" 2>/dev/null || true
+    fi
+
+    # 5) GTK / fonts / cursor
+    if [ -d "$BACKUP_DIR/gtk-3.0-config" ]; then
+        mkdir -p "$HOME/.config"
+        log_debug "Restoring GTK 3 settings"
+        rm -rf "$HOME/.config/gtk-3.0"
+        cp -r "$BACKUP_DIR/gtk-3.0-config" "$HOME/.config/gtk-3.0"
+    fi
+    if [ -d "$BACKUP_DIR/gtk-4.0-config" ]; then
+        mkdir -p "$HOME/.config"
+        log_debug "Restoring GTK 4 settings"
+        rm -rf "$HOME/.config/gtk-4.0"
+        cp -r "$BACKUP_DIR/gtk-4.0-config" "$HOME/.config/gtk-4.0"
+    fi
+    if [ -d "$BACKUP_DIR/fontconfig-config" ]; then
+        mkdir -p "$HOME/.config"
+        log_debug "Restoring fontconfig settings"
+        rm -rf "$HOME/.config/fontconfig"
+        cp -r "$BACKUP_DIR/fontconfig-config" "$HOME/.config/fontconfig"
+    fi
+    if [ -d "$BACKUP_DIR/icons-meta/default" ]; then
+        mkdir -p "$HOME/.icons"
+        log_debug "Restoring cursor default selector (~/.icons/default)"
+        rm -rf "$HOME/.icons/default"
+        cp -r "$BACKUP_DIR/icons-meta/default" "$HOME/.icons/default"
+    fi
+}
+
+# ---------- RESTORE THEME (no global theme auto-apply) ----------
 restore_theme() {
     local NAME="$1"
     if [ -z "$NAME" ]; then
@@ -216,92 +317,33 @@ restore_theme() {
     ensure_base_dir
     local BACKUP_DIR="$BASE_DIR/$NAME"
 
-    if [ ! -d "$BACKUP_DIR" ]; then
+    if [ ! -d "$BACKUP_DIR" ] && [ ! -f "$BASE_DIR/$NAME.tar.gz" ]; then
         echo "❌ Backup '$NAME' not found in $BASE_DIR"
         exit 1
     fi
 
-    echo "🟣 Restoring KDE theme (without layout) from '$NAME'..."
+    echo "🟣 Restoring KDE theme from '$NAME' (no global theme auto-apply)…"
 
     if [ -f "$BASE_DIR/$NAME.tar.gz" ]; then
+        log_debug "Extracting archive $BASE_DIR/$NAME.tar.gz"
         tar -xzf "$BASE_DIR/$NAME.tar.gz" -C "$BASE_DIR"
     fi
 
-    # 1) Core KDE config files
-    local cfg_files=(
-        plasmarc
-        kdeglobals
-        kwinrc
-        kwinrulesrc
-        kscreenlockerrc
-        systemsettingsrc
-        konsolerc
-        dolphinrc
-    )
+    restore_theme_files "$BACKUP_DIR"
 
-    mkdir -p "$HOME/.config"
-    for f in "${cfg_files[@]}"; do
-        if [ -f "$BACKUP_DIR/$f" ]; then
-            cp "$BACKUP_DIR/$f" "$HOME/.config/"
-        fi
-    done
-
-    # 2) Plasma & theme assets
-    mkdir -p "$HOME/.local/share"
-    if [ -d "$BACKUP_DIR" ]; then
-        local theme_dirs=(
-            plasma
-            plasma-desktop
-            plasma-shell
-            icons
-            color-schemes
-            konsole
-            aurorae
-            wallpapers
-        )
-
-        for d in "${theme_dirs[@]}"; do
-            if [ -d "$BACKUP_DIR/$d" ]; then
-                cp -r "$BACKUP_DIR/$d" "$HOME/.local/share/"
-            fi
-        done
-
-        for d in "$BACKUP_DIR"/plasma*; do
-            [ -d "$d" ] || continue
-            cp -r "$d" "$HOME/.local/share/"
-        done
-    fi
-
-    # 3) Kvantum
-    if [ -d "$BACKUP_DIR/Kvantum-config" ]; then
-        mkdir -p "$HOME/.config"
-        cp -r "$BACKUP_DIR/Kvantum-config" "$HOME/.config/Kvantum"
-    fi
-    if [ -d "$BACKUP_DIR/Kvantum-themes" ]; then
-        mkdir -p "$HOME/.local/share"
-        cp -r "$BACKUP_DIR/Kvantum-themes" "$HOME/.local/share/Kvantum"
-    fi
-
-    # 4) Latte config/share
-    if [ -d "$BACKUP_DIR/latte-config" ]; then
-        mkdir -p "$HOME/.config"
-        cp -r "$BACKUP_DIR/latte-config/"* "$HOME/.config/" 2>/dev/null || true
-    fi
-    if [ -d "$BACKUP_DIR/latte-share" ]; then
-        mkdir -p "$HOME/.local/share"
-        cp -r "$BACKUP_DIR/latte-share/"* "$HOME/.local/share/" 2>/dev/null || true
-    fi
-
-    # Apply global theme if saved
-    apply_global_theme "$BACKUP_DIR"
-
-    echo "🔄 Reloading KWin configuration…"
+    echo "🔄 Restarting KWin…"
     qdbus org.kde.KWin /KWin reconfigure 2>/dev/null || true
 
-    echo "✅ Theme restore complete (layout untouched)."
+    echo "✅ Theme restore complete."
+    echo
+    echo "ℹ Electron / Chromium apps (Chrome, Brave, VS Code, etc.)"
+    echo "  draw their own titlebars (CSD). For better integration:"
+    echo "    - Chrome: enable system title bar if available."
+    echo "    - VS Code: set \"window.titleBarStyle\": \"native\" in settings."
+    echo
 }
 
-# ---------- RESTORE LAYOUT ----------
+# ---------- RESTORE LAYOUT ONLY ----------
 restore_layout() {
     local NAME="$1"
     if [ -z "$NAME" ]; then
@@ -313,35 +355,35 @@ restore_layout() {
     ensure_base_dir
     local BACKUP_DIR="$BASE_DIR/$NAME"
 
-    if [ ! -d "$BACKUP_DIR" ]; then
+    if [ ! -d "$BACKUP_DIR" ] && [ ! -f "$BASE_DIR/$NAME.tar.gz" ]; then
         echo "❌ Backup '$NAME' not found in $BASE_DIR"
         exit 1
     fi
 
-    echo "⚠️  WARNING: This will overwrite your current Plasma panel/widget layout"
-    echo "    with the one from backup '$NAME'."
-    echo "    Your newly added widgets/panels may be lost."
-
-    check_missing_plasmoids "$BACKUP_DIR"
+    echo "⚠️  Restoring layout from '$NAME'…"
 
     if [ -f "$BASE_DIR/$NAME.tar.gz" ]; then
+        log_debug "Extracting archive for layout restore: $BASE_DIR/$NAME.tar.gz"
         tar -xzf "$BASE_DIR/$NAME.tar.gz" -C "$BASE_DIR"
     fi
 
     if [ -f "$BACKUP_DIR/plasma-org.kde.plasma.desktop-appletsrc" ]; then
         mkdir -p "$HOME/.config"
+        log_debug "Restoring plasma layout file"
         cp "$BACKUP_DIR/plasma-org.kde.plasma.desktop-appletsrc" "$HOME/.config/"
     else
-        echo "❌ No plasma-org.kde.plasma.desktop-appletsrc found in backup; cannot restore layout."
+        echo "❌ No plasma-org.kde.plasma.desktop-appletsrc in backup; cannot restore layout."
         exit 1
     fi
 
     if [ -d "$BACKUP_DIR/latte-config" ]; then
         mkdir -p "$HOME/.config"
+        log_debug "Restoring Latte layout config"
         cp -r "$BACKUP_DIR/latte-config/"* "$HOME/.config/" 2>/dev/null || true
     fi
     if [ -d "$BACKUP_DIR/latte-share" ]; then
         mkdir -p "$HOME/.local/share"
+        log_debug "Restoring Latte layout share data"
         cp -r "$BACKUP_DIR/latte-share/"* "$HOME/.local/share/" 2>/dev/null || true
     fi
 
@@ -353,7 +395,7 @@ restore_layout() {
     echo "✅ Layout restore complete."
 }
 
-# ---------- RESTORE BOTH ----------
+# ---------- RESTORE BOTH (APPLY GLOBAL THEME FIRST) ----------
 restore_all() {
     local NAME="$1"
     if [ -z "$NAME" ]; then
@@ -362,9 +404,31 @@ restore_all() {
         exit 1
     fi
 
-    echo "🟣 Restoring THEME + LAYOUT from '$NAME'..."
-    restore_theme "$NAME"
+    ensure_base_dir
+    local BACKUP_DIR="$BASE_DIR/$NAME"
+
+    if [ ! -d "$BACKUP_DIR" ] && [ ! -f "$BASE_DIR/$NAME.tar.gz" ]; then
+        echo "❌ Backup '$NAME' not found in $BASE_DIR"
+        exit 1
+    fi
+
+    echo "🟣 Restoring THEME + LAYOUT from '$NAME'…"
+
+    if [ -f "$BASE_DIR/$NAME.tar.gz" ]; then
+        log_debug "Extracting archive for restore-all: $BASE_DIR/$NAME.tar.gz"
+        tar -xzf "$BASE_DIR/$NAME.tar.gz" -C "$BASE_DIR"
+    fi
+
+    # Step 1: apply base global theme
+    apply_global_theme "$BACKUP_DIR"
+
+    # Step 2: restore all theme configs/assets
+    restore_theme_files "$BACKUP_DIR"
+
+    # Step 3: restore layout
     restore_layout "$NAME"
+
+    echo "✅ Full theme + layout restore complete."
 }
 
 # ---------- LIST ----------
@@ -374,7 +438,7 @@ list_backups() {
     ls "$BASE_DIR"
 }
 
-# ---------- UNINSTALL (CLI) ----------
+# ---------- UNINSTALL ----------
 uninstall_self() {
     echo "This will remove the KDE Theme Backup CLI + GUI from your system."
     echo
@@ -394,7 +458,7 @@ uninstall_self() {
 
     ICON_BASE="/usr/share/icons/hicolor"
     for size in 16x16 24x24 32x32 48x48 64x64 128x128 256x256 512x512 scalable; do
-        rm -f "$ICON_BASE/$size/apps/kde-theme-backup.png" 2>/dev/null || true
+        rm -f "$ICON_BASE/$size/apps/kdethemebackup.png" 2>/dev/null || true
     done
 
     if command -v gtk-update-icon-cache >/dev/null 2>&1; then
@@ -432,16 +496,19 @@ case "$1" in
         uninstall_self
         ;;
     *)
-        echo "KDE theme backup/restore utility (stable CLI)"
+        echo "KDE theme backup/restore utility v8"
         echo
         echo "Usage:"
-        echo "  kde-theme backup <name>         # create a named backup (theme + layout + Kvantum + Latte)"
-        echo "  kde-theme restore <name>        # restore THEME ONLY (no widget/panel layout overwrite)"
+        echo "  kde-theme backup <name>         # create a named backup (theme + layout + Kvantum + Latte + GTK + cursor)"
+        echo "  kde-theme restore <name>        # restore THEME ONLY (no layout, no global-theme auto-apply)"
         echo "  kde-theme restore-layout <name> # restore widget/panel/Latte layout from backup"
-        echo "  kde-theme restore-all <name>    # restore theme + layout together"
+        echo "  kde-theme restore-all <name>    # apply global theme + restore theme + layout"
         echo "  kde-theme list                  # list available backups"
         echo "  sudo kde-theme uninstall        # uninstall CLI + GUI from system"
         echo
         echo "Backups are stored in: $BASE_DIR"
+        echo
+        echo "Debug:"
+        echo "  KDE_THEME_DEBUG=1 kde-theme restore-all <name>  # enable verbose debug logging"
         ;;
 esac
